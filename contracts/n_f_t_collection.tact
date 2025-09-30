@@ -32,23 +32,33 @@ contract NoLimitNFTCollection with Deployable {
     
     /// The URL of the image associated with the NFTs in the NoLimitNFTCollection contract.
     nftImage: String;
+
+    /// The maximum number of NFTs that can be minted in this collection.
+    maxSupply: Int as uint32;
+
+    /// Indicates whether the contract is paused. When paused, certain operations may be restricted.
+    paused: Bool;
     
     /// A map that stores the NFTs minted in the NoLimitNFTCollection contract, where the key is the unique identifier (32-bit unsigned integer) of the NFT and the value is the NFT struct.
     nfts: map<Int as uint32, NFT>;
 
-    /// Initializes a new NFT collection with the specified image URL.
+    /// Initializes a new NFT collection with the specified image URL and maximum supply.
     /// 
     /// # Parameters
     /// - `imageUrl`: A `String` representing the URL of the image associated with the NFT collection.
+    /// - `maxSupply`: An `Int` representing the maximum number of NFTs that can be minted.
     /// 
     /// # Properties
     /// - `owner`: The address of the sender who initializes the NFT collection.
     /// - `nftCount`: The initial count of NFTs in the collection, set to 0.
     /// - `nftImage`: The URL of the image associated with the NFT collection.
-    init(imageUrl: String) {
+    /// - `maxSupply`: The maximum number of NFTs that can be minted.
+    init(imageUrl: String, maxSupply: Int) {
         self.owner = sender();
         self.nftCount = 0;
         self.nftImage = imageUrl;
+        self.maxSupply = maxSupply;
+        self.paused = false;
     }
 
     /**
@@ -62,8 +72,12 @@ contract NoLimitNFTCollection with Deployable {
      * 2. Creates a new `NFT` instance with the incremented ID, the predefined image, and the sender as the owner.
      * 3. Stores the new `NFT` in the `nfts` collection using the incremented ID as the key.
      * 4. Emits an `NFTMintEvent` with the amount set to 1 and the recipient set to the sender.
+     * @require The current NFT count must be less than the maximum supply.
+     * @require The contract must not be paused.
      */
     receive() {
+        require(!self.paused, "Contract is paused");
+        require(self.nftCount < self.maxSupply, "Max supply reached");
         self.nftCount += 1;
 
         let newNFT: NFT = NFT{
@@ -74,6 +88,54 @@ contract NoLimitNFTCollection with Deployable {
 
         self.nfts.set(self.nftCount, newNFT);
         emit(NFTMintEvent{amount: 1, recipient: sender()}.toCell());
+    }
+
+    /**
+     * @notice Transfers ownership of an NFT from the current owner to a new owner.
+     * @dev Only the current owner of the NFT can initiate the transfer.
+     * @param nftId The unique identifier of the NFT to transfer.
+     * @param newOwner The address of the recipient who will receive the NFT.
+     * @require The NFT must exist.
+     * @require The sender must be the current owner of the NFT.
+     */
+    fun transferNFT(nftId: Int, newOwner: Address) {
+        require(self.nfts.get(nftId) != null, "NFT does not exist");
+        let nftToTransfer: NFT = self.nfts.get(nftId)!!;
+        require(nftToTransfer.owner == sender(), "Only the current owner can transfer this NFT");
+
+        nftToTransfer.owner = newOwner;
+        self.nfts.set(nftId, nftToTransfer);
+    }
+
+    /**
+     * @notice Transfers the ownership of the contract to a new address.
+     * @dev Only the current owner of the contract can call this function.
+     * @param newOwner The address of the new owner.
+     * @require The sender must be the current owner of the contract.
+     */
+    fun transferOwnership(newOwner: Address) {
+        require(sender() == self.owner, "Only the owner can transfer contract ownership");
+        self.owner = newOwner;
+    }
+
+    /**
+     * @notice Pauses the contract, restricting certain operations.
+     * @dev Only the owner can call this function.
+     * @require The sender must be the owner of the contract.
+     */
+    fun pause() {
+        require(sender() == self.owner, "Only the owner can pause the contract");
+        self.paused = true;
+    }
+
+    /**
+     * @notice Unpauses the contract, allowing previously restricted operations.
+     * @dev Only the owner can call this function.
+     * @require The sender must be the owner of the contract.
+     */
+    fun unpause() {
+        require(sender() == self.owner, "Only the owner can unpause the contract");
+        self.paused = false;
     }
 
     /**
